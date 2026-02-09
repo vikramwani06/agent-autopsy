@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  agent-autopsy:
+    build: .
+    container_name: agent-autopsy-app
+    ports:
+      - "8000:8000"  # API port
+      - "8501:8501"  # Streamlit UI port
+    environment:
+      # API Configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      
+      # Streamlit Configuration
+      - STREAMLIT_HOST=0.0.0.0
+      - STREAMLIT_PORT=8501
+      
+      # Langfuse Configuration (set these in your environment or .env file)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
+      
+      # Database Configuration (if needed)
+      - DATABASE_URL=${DATABASE_URL}
+      
+      # Application Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-false}
+    
+    volumes:
+      # Mount reports directory for persistence
+      - ./reports:/app/reports
+      # Mount logs directory
+      - ./logs:/app/logs
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  default:
+    name: agent-autopsy-network

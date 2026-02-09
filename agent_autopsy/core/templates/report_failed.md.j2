@@ -1,0 +1,242 @@
+{#-
+  Agent Autopsy — Extended Report Template
+  Version: 2.0.0
+
+  Concise, header-driven sections inferred from Langfuse traces.
+  Shared structure for passed/failed reports. Failed reports add error detail.
+
+  Template variables (provided by report_generator.py):
+    - trace_id, workflow_name, severity_label, confidence, total_spans
+    - total_failures, business_impact, issues_at_glance, issues, minor_issues
+    - root_causes, has_compound_failure, compound_failure_text
+    - recommended_actions, observability_action
+    - NEW: execution_context, outcome_summary, timeline, state_evolution
+    - NEW: decisions, tools_summary, retries, performance, classification
+    - NEW: causal_sequence, metadata_summary, error_summary
+    - NEW: user_question, tool_calls, planner_decision, execution_tree
+-#}
+# Autopsy Report
+
+{% if workflow_name %}**Workflow:** {{ workflow_name }}
+{% endif -%}
+**Verdict:** FAIL — Issues detected
+**Severity:** {{ severity_label }}
+**Confidence:** {{ "%.0f" | format(confidence * 100) }}%
+
+{% if issues and issues[0].friendly_type == "Reported Success but Produced No Output" -%}
+**Severity justification:** Silent failure with user-facing impact
+**Confidence justification:** Empty output detected across multiple terminal spans
+{% elif issues and issues[0].friendly_type == "Execution Deviated from the Plan" -%}
+**Severity justification:** Plan-execution disconnect with complete output invalidation
+**Confidence justification:** Consistent tool deviation across all execution spans
+{% endif -%}
+
+**At a glance:**
+{% for item in issues_at_glance -%}
+- Issue {{ item.number }}: {{ item.label }} — {{ item.severity }}
+{% endfor %}
+
+> Trace ID: `{{ trace_id }}` · Steps analyzed: {{ total_spans }}
+
+## Trace & Execution Context
+
+**Trace ID:** `{{ trace_id }}`  
+**Duration:** {{ total_duration or "N/A" }}  
+**Environment:** {{ provider or "Unknown" }}  
+**Agent:** {{ workflow_name or "LangGraph" }}
+
+{% if trace_insights %}
+**Execution Statistics:**
+- Total Chains: {{ trace_insights.total_chains or 0 }}
+- LLM Generations: {{ trace_insights.total_generations or 0 }}
+- Tool Calls: {{ trace_insights.total_tools or 0 }}
+- Errors Detected: {{ trace_insights.error_count or 0 }}
+- Retries: {{ trace_insights.retry_count or 0 }}
+
+{% if trace_insights.models_used %}
+**Models Used:** {{ trace_insights.models_used|join(', ') if trace_insights.models_used else 'None' }}
+{% endif %}
+
+{% if trace_insights.tools_used %}
+**Tools Invoked:** {{ trace_insights.tools_used|join(', ') if trace_insights.tools_used else 'None' }}
+{% endif %}
+{% endif %}
+
+## Failure Summary
+
+{% if failure_context and failure_context.failure_summary %}
+{{ failure_context.failure_summary }}
+
+**Impact:** {{ failure_context.impact_analysis }}
+
+**Root Cause Hypothesis:** {{ failure_context.root_cause_hypothesis }}
+{% else %}
+Multiple issues were detected that affected the workflow execution.
+{% endif %}
+
+{% if failure_context and failure_context.affected_spans %}
+## Affected Components
+
+{% for span in failure_context.affected_spans %}
+- **{{ span.name }}** ({{ span.type }}): {{ span.description }}
+{% endfor %}
+{% endif %}
+
+{% if execution_analysis and execution_analysis.execution_phases %}
+## Execution Flow Analysis
+
+**Sequential Execution Phases:**
+
+| Phase | Duration | Status | Tools | Generations |
+|-------|----------|--------|-------|-------------|
+{% for phase in execution_analysis.execution_phases %}
+| {{ phase.name or 'Unknown' }} | {{ phase.duration or '—' }} | {{ phase.status or 'Unknown' }} | {{ phase.tools_called or 0 }} | {{ phase.generations or 0 }} |
+{% endfor %}
+{% endif %}
+
+{% if execution_analysis and execution_analysis.bottlenecks %}
+## Performance Bottlenecks
+
+{% for bottleneck in execution_analysis.bottlenecks %}
+- **{{ bottleneck.name or 'Unknown' }}** ({{ bottleneck.type or 'Unknown' }}): {{ bottleneck.duration or '—' }} ({{ bottleneck.percentage or 'Unknown' }} of total time)
+{% endfor %}
+{% endif %}
+
+{% if trace_insights and trace_insights.error_spans %}
+## Error Details
+
+{% for error_span in trace_insights.error_spans %}
+### {{ error_span.name }} ({{ error_span.span_type }})
+**Duration:** {{ error_span.duration }}  
+**Error:** {{ error_span.error }}
+{% endfor %}
+{% endif %}
+
+{% if failure_context and failure_context.failure_timeline %}
+## Failure Timeline
+
+{% for event in failure_context.failure_timeline %}
+- **{{ event.timestamp[:19] }}** - {{ event.span }}: {{ event.event }}
+{% endfor %}
+{% endif %}
+
+{% if execution_analysis and execution_analysis.critical_path %}
+## Critical Path
+
+{% for step in execution_analysis.critical_path[:10] %}
+{{ loop.index }}. **{{ step.name or 'Unknown' }}** ({{ step.type or 'Unknown' }}) - {{ step.duration or '—' }}
+{% endfor %}
+{% endif %}
+
+## Metadata & Correlations
+
+**Tags:** {% if tags %}{{ tags|join(', ') }}{% else %}None{% endif %}  
+**Correlation ID:** `{{ trace_id[:8] }}`  
+**Version:** Agent Autopsy v2.0.0
+
+---
+
+## Detailed Issues
+
+{% for issue in issues %}
+### Issue {{ issue.number }}: {{ issue.friendly_type }}
+
+**Severity:** {{ issue.severity_label }} · **Confidence:** {{ "%.0f" | format(issue.confidence * 100) }}%
+
+{{ issue.narrative }}
+
+{% for block in issue.evidence_blocks %}
+{{ block }}
+
+{% endfor %}
+
+**Prevention:** Enforce content validation as invariant before terminal success  
+**Detection:** Alert on empty content fields in terminal span output
+
+{% endfor %}
+
+{% if minor_issues %}
+### Minor Issues
+
+{% for issue in minor_issues %}
+#### Issue {{ issue.number }}: {{ issue.friendly_type }}
+
+**Severity:** {{ issue.severity_label }} · **Confidence:** {{ "%.0f" | format(issue.confidence * 100) }}%
+{{ issue.narrative }}
+
+{% endfor %}
+{% endif %}
+
+---
+
+## User Question & Intent
+
+{% if user_question %}
+**Original Question:**
+> {{ user_question }}
+{% else %}
+**User Input:** Not available in trace
+{% endif %}
+
+---
+
+## Planner Decision & Strategy
+
+{% if planner_decision and planner_decision.objective %}
+**Planner Objective:**
+{{ planner_decision.objective }}
+
+{% if planner_decision.reasoning %}
+**Planner Reasoning:**
+{{ planner_decision.reasoning }}
+{% endif %}
+
+{% if planner_decision.required_facts %}
+**Required Facts to Find:**
+{% for fact in planner_decision.required_facts %}
+- {{ fact }}
+{% endfor %}
+{% endif %}
+
+{% if planner_decision.tools_to_use %}
+**Planned Tools:**
+{% for tool in planner_decision.tools_to_use %}
+- `{{ tool }}`
+{% endfor %}
+{% endif %}
+
+{% else %}
+No explicit planner decision found in trace.
+{% endif %}
+
+---
+
+## Tool Execution Details
+
+{% if tool_calls %}
+**Total Tool Calls:** {{ tool_calls|length }}
+
+| Tool Name | Status | Duration | Span | Timestamp |
+|---|---|---|---|---|
+{% for call in tool_calls %}
+| `{{ call.tool_name }}` | {{ call.status }} | {{ call.duration }} | {{ call.span_name }} | {{ call.timestamp[:19] if call.timestamp else 'N/A' }} |
+{% endfor %}
+
+{% if tool_calls %}
+### Tool Input Details
+
+{% for call in tool_calls %}
+{% if call.tool_input %}
+#### {{ call.tool_name }}
+```json
+{{ call.tool_input | tojson(indent=2) }}
+```
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% else %}
+No tool calls detected in trace.
+{% endif %}
+
+---

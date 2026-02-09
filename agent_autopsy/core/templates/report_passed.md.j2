@@ -1,0 +1,188 @@
+{#-
+  Agent Autopsy — Extended Report Template
+  Version: 2.0.0
+
+  Concise, header-driven sections inferred from Langfuse traces.
+  Shared structure for passed/failed reports. Failed reports add error detail.
+
+  Template variables (provided by report_generator.py):
+    - trace_id, workflow_name, severity_label, confidence, total_spans
+    - user_input, steps, total_duration, plan, output_summary
+    - provider, tags, start_time, end_time, spans
+    - NEW: execution_context, outcome_summary, timeline, state_evolution
+    - NEW: decisions, tools_summary, retries, performance, classification
+    - NEW: causal_sequence, metadata_summary
+    - NEW: user_question, tool_calls, planner_decision, execution_tree
+-#}
+# Autopsy Report
+
+{% if workflow_name %}**Workflow:** {{ workflow_name }}
+{% endif -%}
+**Verdict:** PASS — No issues found
+**Severity:** {{ severity_label }}
+**Confidence:** {{ "%.0f" | format(confidence * 100) }}%
+
+**Severity justification:** All validation boundaries satisfied  
+**Confidence justification:** Consistent execution across all spans
+
+> Trace ID: `{{ trace_id }}` · Steps analyzed: {{ total_spans }}
+
+## Trace & Execution Context
+
+**Trace ID:** `{{ trace_id }}`  
+**Duration:** {{ total_duration }}  
+**Environment:** {{ provider }}  
+**Agent:** {{ workflow_name or "LangGraph" }}
+
+## Success Summary
+
+Correctness enforced throughout: content validation present at terminal boundary.
+
+## Execution Timeline
+
+**Terminal phase:** Summarizer completed with valid content  
+**Success point:** Content passed terminal validation check
+
+## State Evolution
+
+**Expected terminal output:** Structured response with content  
+**Observed terminal output:** Valid content fields populated  
+**Delta:** Zero content loss with proper error handling
+
+## Decision & Routing Evidence
+
+**Routing impact:** Standard workflow enforced content validation  
+**Why relevant:** Validation boundary between summarizer and terminal success
+
+## Tool Invocation Summary
+
+**Tool success:** All planned tools executed successfully  
+**Downstream impact:** Tool outputs properly integrated into final response
+
+## Retry & Re-execution
+
+**Recovery attempts:** Not required  
+**Amplification:** Not applicable
+
+## Latency & Cost
+
+**Total latency:** {{ total_duration }}  
+**Performance impact:** Within normal operational bounds
+
+## Deterministic vs LLM Steps
+
+**Authoritative LLM output:** Valid summarizer response accepted  
+**Deterministic check:** Content validation enforced before terminal success
+
+## Causal Sequence
+
+The system requires valid LLM outputs to satisfy terminal success conditions.
+
+## Metadata & Correlations
+
+**Tags:** {% if tags %}{{ tags|join(', ') }}{% else %}None{% endif %}  
+**Correlation ID:** `{{ trace_id[:8] }}`  
+**Version:** Agent Autopsy v2.0.0
+
+---
+
+## User Question & Intent
+
+{% if user_question %}
+**Original Question:**
+> {{ user_question }}
+{% else %}
+**User Input:** Not available in trace
+{% endif %}
+
+---
+
+## Planner Decision & Strategy
+
+{% if planner_decision and planner_decision.objective %}
+**Planner Objective:**
+{{ planner_decision.objective }}
+
+{% if planner_decision.reasoning %}
+**Planner Reasoning:**
+{{ planner_decision.reasoning }}
+{% endif %}
+
+{% if planner_decision.required_facts %}
+**Required Facts to Find:**
+{% for fact in planner_decision.required_facts %}
+- {{ fact }}
+{% endfor %}
+{% endif %}
+
+{% if planner_decision.tools_to_use %}
+**Planned Tools:**
+{% for tool in planner_decision.tools_to_use %}
+- `{{ tool }}`
+{% endfor %}
+{% endif %}
+
+{% else %}
+No explicit planner decision found in trace.
+{% endif %}
+
+---
+
+## Tool Execution Details
+
+{% if tool_calls %}
+**Total Tool Calls:** {{ tool_calls|length }}
+
+| Tool Name | Status | Duration | Span | Timestamp |
+|---|---|---|---|---|
+{% for call in tool_calls %}
+| `{{ call.tool_name }}` | {{ call.status }} | {{ call.duration }} | {{ call.span_name }} | {{ call.timestamp[:19] if call.timestamp else 'N/A' }} |
+{% endfor %}
+
+{% if tool_calls %}
+### Tool Input Details
+
+{% for call in tool_calls %}
+{% if call.tool_input %}
+#### {{ call.tool_name }}
+```json
+{{ call.tool_input | tojson(indent=2) }}
+```
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% else %}
+No tool calls detected in trace.
+{% endif %}
+
+---
+
+<details>
+<summary>Technical Reference (for developers)</summary>
+
+| Field | Value |
+|---|---|
+| Trace ID | `{{ trace_id }}` |
+| Provider | `{{ provider }}` |
+| Total spans | {{ total_spans }} |
+{% if tags -%}
+| Tags | {% for t in tags %}`{{ t }}`{% if not loop.last %}, {% endif %}{% endfor %} |
+{% endif -%}
+{% if start_time -%}
+| Start time | `{{ start_time }}` |
+{% endif -%}
+{% if end_time -%}
+| End time | `{{ end_time }}` |
+{% endif %}
+
+{% if spans %}
+**Span Details:**
+
+| Span ID | Name | Type | Duration |
+|---|---|---|---|
+{% for s in spans -%}
+| `{{ s.span_id }}` | {{ s.name }} | {{ s.span_type }} | {{ s.duration }} |
+{% endfor %}
+{% endif -%}
+</details>

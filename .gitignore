@@ -1,0 +1,194 @@
+# =============================================================================
+# Agent Autopsy .gitignore
+# =============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables (SECURITY: Never commit these!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+.monitordb/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+.pycoverage
+htmlcov/
+.tox/
+.nox/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs and Runtime
+*.log
+*.log.*
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# Reports and Data (sensitive content)
+reports/
+*.md
+!README.md
+!client_app/README.md
+!client_app/SETUP.md
+!client_app/ENHANCEMENTS.md
+!README-DOCKER.md
+
+# Database
+*.db
+*.sqlite3
+*.sqlite
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+
+# Security and Keys
+*.key
+*.pem
+*.crt
+*.p12
+secrets/
+private/
+credentials/
+
+# Backup files
+backup/
+*.backup
+*.tar.gz
+*.zip
+
+# Local development
+local/
+dev/
+test_data/
+sample_data/
+
+# Monitoring and Metrics
+metrics/
+monitoring/
+.grafana/
+.prometheus/
+
+# CI/CD
+.github/workflows/*.local
+.gitlab-ci.local
+
+# Node.js (if any frontend components)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Package managers
+package-lock.json
+yarn.lock
+
+# Build artifacts
+bin/
+obj/
+target/
+out/
