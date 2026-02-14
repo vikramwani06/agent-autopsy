@@ -54,6 +54,7 @@ def find_planning_spans(trace: CanonicalTrace) -> list[CanonicalSpan]:
         "plan", "planning", "intent", "goal", "objective",
         "strategy", "decide", "decision", "route", "router",
         "orchestrat", "dispatch", "initial", "setup",
+        "analysis", "analyz",
     }
     planning_spans = []
     for span in order_spans_chronologically(trace.spans):

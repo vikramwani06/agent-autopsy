@@ -77,6 +77,7 @@ _FAILURE_TYPE_LABELS = {
     "silent_retry_masking": "Errors Were Silently Hidden by Retries",
     "false_terminal_success": "Reported Success but Produced No Output",
     "retry_without_learning": "Repeated the Same Failed Approach",
+    "wrong_tool_usage": "Wrong Tool Selected for the Task",
 }
 
 
@@ -924,28 +925,30 @@ def _build_failure_context(result: AutopsyResult, trace: CanonicalTrace) -> dict
     seen_spans = set()
     for failure in all_failures:
         for evidence in failure.evidence:
-            if evidence.span_id and evidence.span_id not in seen_spans:
-                seen_spans.add(evidence.span_id)
-                span = next((s for s in trace.spans if s.span_id == evidence.span_id), None)
-                if span:
-                    context["affected_spans"].append({
-                        "name": span.name,
-                        "type": span.span_type,
-                        "failure_type": _FAILURE_TYPE_LABELS.get(failure.failure_type, failure.failure_type),
-                        "description": evidence.description
-                    })
+            for sid in evidence.span_ids:
+                if sid not in seen_spans:
+                    seen_spans.add(sid)
+                    span = next((s for s in trace.spans if s.span_id == sid), None)
+                    if span:
+                        context["affected_spans"].append({
+                            "name": span.name,
+                            "type": span.span_type,
+                            "failure_type": _FAILURE_TYPE_LABELS.get(failure.failure_type, failure.failure_type),
+                            "description": evidence.description
+                        })
     
     # Build failure timeline
     for failure in all_failures:
         for evidence in failure.evidence:
-            if evidence.span_id:
-                span = next((s for s in trace.spans if s.span_id == evidence.span_id), None)
+            for sid in evidence.span_ids:
+                span = next((s for s in trace.spans if s.span_id == sid), None)
                 if span and span.start_time:
                     context["failure_timeline"].append({
                         "timestamp": span.start_time.isoformat() if span.start_time else "Unknown",
                         "span": span.name,
                         "event": evidence.description
                     })
+                    break  # one timeline entry per evidence is enough
     
     # Sort timeline by timestamp
     context["failure_timeline"].sort(key=lambda x: x["timestamp"])
@@ -961,7 +964,9 @@ def _build_failure_context(result: AutopsyResult, trace: CanonicalTrace) -> dict
         context["impact_analysis"] = "The failures detected are minor and unlikely to significantly impact the final output."
     
     # Build root cause hypothesis based on failure types
-    if "state_drift" in failure_types:
+    if "wrong_tool_usage" in failure_types:
+        context["root_cause_hypothesis"] = "The agent selected the wrong tool for the task, producing a semantically incorrect response. There is no validation gate to verify tool selection matches query intent."
+    elif "state_drift" in failure_types:
         context["root_cause_hypothesis"] = "The workflow execution deviated from the planned approach, suggesting inadequate validation between planning and execution phases."
     elif "false_terminal_success" in failure_types:
         context["root_cause_hypothesis"] = "The workflow completed successfully despite producing no meaningful output, indicating missing output validation checks."
@@ -1059,6 +1064,14 @@ _NARRATIVES = {
         "The system did not adapt its approach between attempts, wasting "
         "resources and producing no useful result."
     ),
+    "wrong_tool_usage": (
+        "The agent selected the wrong tool to answer the user's question. "
+        "Instead of using the appropriate tool for the task, it chose an "
+        "unrelated tool and then built a confident but completely incorrect "
+        "answer on top of the irrelevant data. The workflow completed without "
+        "errors, so monitoring systems would show this as a success — but the "
+        "user received a semantically wrong response."
+    ),
 }
 
 
@@ -1082,6 +1095,8 @@ def _format_evidence_friendly(failure_type: str, ev: FailureEvidence) -> str:
         return _format_retry_masking_evidence(ev, details)
     if failure_type == "retry_without_learning":
         return _format_retry_learning_evidence(ev, details)
+    if failure_type == "wrong_tool_usage":
+        return _format_wrong_tool_evidence(ev, details)
 
     return f"> {ev.description}"
 
@@ -1212,6 +1227,56 @@ def _format_retry_learning_evidence(ev: FailureEvidence, details: dict[str, Any]
     return f"> {ev.description}"
 
 
+def _format_wrong_tool_evidence(ev: FailureEvidence, details: dict[str, Any]) -> str:
+    tool_name = details.get("tool_name", "")
+    actual_purpose = details.get("actual_purpose", "")
+    tool_input = details.get("tool_input", "")
+    tool_output = details.get("tool_output", "")
+    lines: list[str] = []
+
+    if tool_name:
+        lines.append("| | Details |")
+        lines.append("|---|---|")
+        lines.append(f"| **Tool used** | `{tool_name}` |")
+        if tool_input:
+            lines.append(f"| **Input given** | {tool_input} |")
+        if actual_purpose:
+            lines.append(f"| **What should have been done** | {actual_purpose} |")
+        lines.append(f"| **Correct usage** | No |")
+        if tool_output and "error" in str(tool_output).lower():
+            lines.append(f"| **Tool result** | Error (see below) |")
+        lines.append("")
+        lines.append(
+            "**Impact:** The agent used a tool that has nothing to do with the "
+            "user's actual question. The response is built on irrelevant data "
+            "and is semantically incorrect, even though the workflow completed "
+            "without raising any errors."
+        )
+        return "\n".join(lines)
+
+    # Fallback for wrong-behavior span evidence
+    span_name = details.get("span_name", "")
+    matched_keywords = details.get("matched_keywords", [])
+    reasoning = details.get("reasoning", [])
+
+    if span_name:
+        lines.append(f"**Span:** `{span_name}` (indicates incorrect reasoning)")
+        if reasoning:
+            lines.append("")
+            lines.append("**Reasoning trail:**")
+            items = reasoning if isinstance(reasoning, list) else [str(reasoning)]
+            for r in items[:5]:
+                lines.append(f"- {r}")
+        lines.append("")
+        lines.append(
+            "**Impact:** The workflow contains a step that explicitly performs "
+            "incorrect inference, leading to a wrong final answer."
+        )
+        return "\n".join(lines)
+
+    return f"> {ev.description}"
+
+
 # ---------------------------------------------------------------------------
 # Technical reference builder (pre-rendered for template)
 # ---------------------------------------------------------------------------
@@ -1323,6 +1388,19 @@ _ROOT_CAUSES = {
             "between transient and deterministic failures."
         ),
     },
+    "wrong_tool_usage": {
+        "title": "Incorrect Tool Selection",
+        "description": (
+            "The agent's analysis step misidentified the user's intent and selected "
+            "a tool that is semantically unrelated to the task. The workflow has no "
+            "validation gate that checks whether the selected tool is appropriate for "
+            "the query before executing it. As a result, the agent confidently produced "
+            "a response based on irrelevant data.\n\n"
+            "In a well-designed agent workflow, tool selection should be validated "
+            "against the query intent. The system should verify that the tool's domain "
+            "matches the question's domain before proceeding with execution."
+        ),
+    },
 }
 
 _ACTIONS = {
@@ -1380,13 +1458,29 @@ _ACTIONS = {
             "Set a maximum retry count and fail explicitly if all attempts produce identical results.",
         ],
     },
+    "wrong_tool_usage": {
+        "title": "Add tool selection validation",
+        "owner": "Development team",
+        "description": (
+            "Validate that the selected tool is appropriate for the user's query "
+            "before executing it:"
+        ),
+        "action_items": [
+            "After the analysis step, verify the selected tool's domain matches the query intent.",
+            "Maintain a mapping of tool capabilities and match them against query categories.",
+            "If the tool selection confidence is low or the domain mismatch is detected, "
+            "fall back to a more general tool or ask for clarification.",
+            "Add a post-execution check that validates the tool output is semantically "
+            "relevant to the original question.",
+        ],
+    },
 }
 
 
 def _build_root_causes(failure_types: set[str]) -> list[dict[str, str]]:
     """Build root cause dicts for the template."""
     causes = []
-    for ft in ["state_drift", "silent_retry_masking", "false_terminal_success", "retry_without_learning"]:
+    for ft in ["wrong_tool_usage", "state_drift", "silent_retry_masking", "false_terminal_success", "retry_without_learning"]:
         if ft in failure_types and ft in _ROOT_CAUSES:
             causes.append(_ROOT_CAUSES[ft])
     return causes
@@ -1399,7 +1493,7 @@ def _build_actions(failure_types: set[str]) -> tuple[list[dict[str, Any]], dict[
     """
     actions: list[dict[str, Any]] = []
     num = 1
-    for ft in ["state_drift", "silent_retry_masking", "false_terminal_success", "retry_without_learning"]:
+    for ft in ["wrong_tool_usage", "state_drift", "silent_retry_masking", "false_terminal_success", "retry_without_learning"]:
         if ft in failure_types and ft in _ACTIONS:
             action = dict(_ACTIONS[ft])
             action["number"] = num

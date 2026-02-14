@@ -498,6 +498,11 @@ def get_available_sample_traces():
             "trace_id": "a953ab066e2f9b4c40911c35b9b18bbc",
             "status": "Passed", 
             "description": "No issues detected - Correct execution"
+        },
+        {
+            "trace_id": "b448b0904d18d5a59d87df8cfcac4bc9",
+            "status": "Failed",
+            "description": "Wrong tool usage - Semantically incorrect response"
         }
     ]
 
@@ -505,7 +510,7 @@ def fetch_autopsy(trace_id: str, provider: str = "langfuse") -> dict:
     """Fetch autopsy data from the API"""
     try:
         # Show loading toast
-        st.toast("🔄 Fetching autopsy data...", icon="⏳")
+        st.toast("Fetching trace data...", icon="⏳")
         
         with httpx.Client(timeout=30) as client:
             response = client.post(
@@ -594,20 +599,33 @@ def get_report_content_from_api(autopsy_data: dict) -> str:
                 
                 severity_badge = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(failure_severity, "⚪")
                 
-                report_sections.append(f"\n### {i}. {failure_type} - {severity_badge} {failure_severity.upper()}")
+                failure_title = failure.get("title", failure_type)
+                report_sections.append(f"\n### {i}. {failure_title} - {severity_badge} {failure_severity.upper()}")
                 report_sections.append(f"**Confidence:** {failure_confidence * 100:.0f}%")
-                report_sections.append(f"**Description:** {failure_desc}")
+                
+                failure_explanation = failure.get("explanation", "")
+                if failure_explanation:
+                    report_sections.append(f"**Explanation:** {failure_explanation}")
                 
                 # Add evidence if available
                 evidence = failure.get("evidence", [])
                 if evidence:
                     report_sections.append(f"**Evidence:**")
-                    if isinstance(evidence, dict):
+                    if isinstance(evidence, list):
+                        for item in evidence:
+                            if isinstance(item, dict):
+                                desc = item.get("description", "")
+                                if desc:
+                                    report_sections.append(f"- {desc}")
+                                details = item.get("details", {})
+                                if isinstance(details, dict):
+                                    for dk, dv in details.items():
+                                        report_sections.append(f"  - **{dk}:** {dv}")
+                            else:
+                                report_sections.append(f"- {item}")
+                    elif isinstance(evidence, dict):
                         for key, value in evidence.items():
                             report_sections.append(f"- **{key}:** {value}")
-                    elif isinstance(evidence, list):
-                        for item in evidence:
-                            report_sections.append(f"- {item}")
                     else:
                         report_sections.append(f"- {evidence}")
         
@@ -622,8 +640,23 @@ def get_report_content_from_api(autopsy_data: dict) -> str:
                 
                 severity_badge = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(failure_severity, "⚪")
                 
-                report_sections.append(f"\n### {i}. {failure_type} - {severity_badge} {failure_severity.upper()}")
-                report_sections.append(f"**Description:** {failure_desc}")
+                failure_title = failure.get("title", failure_type)
+                report_sections.append(f"\n### {i}. {failure_title} - {severity_badge} {failure_severity.upper()}")
+                failure_explanation = failure.get("explanation", "")
+                if failure_explanation:
+                    report_sections.append(f"**Explanation:** {failure_explanation}")
+                
+                # Add evidence
+                evidence = failure.get("evidence", [])
+                if evidence and isinstance(evidence, list):
+                    report_sections.append(f"**Evidence:**")
+                    for item in evidence:
+                        if isinstance(item, dict):
+                            desc = item.get("description", "")
+                            if desc:
+                                report_sections.append(f"- {desc}")
+                        else:
+                            report_sections.append(f"- {item}")
         
         # Add detailed explanations from report
         primary_explanation = report_data.get("primary_failure_explanation", "")
@@ -994,17 +1027,35 @@ def _extract_workflow_steps_from_autopsy(autopsy_data: dict) -> list[dict]:
     if autopsy_data.get("enhanced_data") and autopsy_data["enhanced_data"].get("trace"):
         trace = autopsy_data["enhanced_data"]["trace"]
         if "spans" in trace:
-            # Extract top-level chain spans as steps
-            for span in trace.get("spans", []):
-                if span.get("span_type") == "chain" and not span.get("parent_span_id"):
-                    steps.append({
-                        "Step": len(steps) + 1,
-                        "Name": span.get("name", "Unknown"),
-                        "Type": span.get("span_type", "chain"),
-                        "Duration": f"{span.get('duration_ms', 0):.0f}ms" if span.get("duration_ms") else "N/A",
-                        "Status": "✅ Success",
-                        "Children": len([s for s in trace.get("spans", []) if s.get("parent_span_id") == span.get("span_id")])
-                    })
+            all_spans = trace.get("spans", [])
+            # Find root chain spans
+            root_chains = [s for s in all_spans if s.get("span_type") == "chain" and not s.get("parent_span_id")]
+            
+            # If there's a single root chain, show its children as the workflow steps
+            if len(root_chains) == 1:
+                root_id = root_chains[0].get("span_id")
+                child_chains = [
+                    s for s in all_spans
+                    if s.get("parent_span_id") == root_id and s.get("span_type") == "chain"
+                ]
+                # Sort by start_time
+                child_chains.sort(key=lambda s: s.get("start_time", ""))
+                target_spans = child_chains if child_chains else root_chains
+            else:
+                target_spans = root_chains
+            
+            for span in target_spans:
+                has_error = span.get("error") or span.get("level") == "ERROR"
+                status = "Error" if has_error else "Success"
+                status_icon = "❌" if has_error else "✅"
+                steps.append({
+                    "Step": len(steps) + 1,
+                    "Name": span.get("name", "Unknown"),
+                    "Type": span.get("span_type", "chain"),
+                    "Duration": f"{span.get('duration_ms', 0):.0f}ms" if span.get("duration_ms") else "N/A",
+                    "Status": f"{status_icon} {status}",
+                    "Children": len([s for s in all_spans if s.get("parent_span_id") == span.get("span_id")])
+                })
     
     return steps
 

@@ -11,6 +11,7 @@ from agent_autopsy.detectors.false_terminal_success import FalseTerminalSuccessD
 from agent_autopsy.detectors.retry_without_learning import RetryWithoutLearningDetector
 from agent_autopsy.detectors.silent_retry_masking import SilentRetryMaskingDetector
 from agent_autopsy.detectors.state_drift import StateDriftDetector
+from agent_autopsy.detectors.wrong_tool_usage import WrongToolUsageDetector
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ _DEFAULT_DETECTORS: list[FailureDetector] = [
     SilentRetryMaskingDetector(),
     FalseTerminalSuccessDetector(),
     RetryWithoutLearningDetector(),
+    WrongToolUsageDetector(),
 ]
 
 # Mutable registry for extensibility
